@@ -1,0 +1,9 @@
+[package]
+name = "com_trajectory"
+version = "0.1.0"
+edition = "2024"
+description = "Compatibility implementation of the ROS 2 LIPM center-of-mass trajectory generator"
+
+[dependencies]
+gnuplot = "0.0.46"
+
