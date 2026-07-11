@@ -1,0 +1,9 @@
+[package]
+name = "walking_logger"
+version = "0.1.0"
+edition = "2024"
+description = "Logging and visualization tools for the walking pattern generator"
+
+[dependencies]
+com_trajectory = { path = "../com_trajectory" }
+gnuplot = "0.0.46"

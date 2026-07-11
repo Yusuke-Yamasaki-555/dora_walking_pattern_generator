@@ -17,9 +17,9 @@ pub type Point3 = [f64; 3];
 pub struct FootStep {
     /// 足先の着地位置列。各要素は `[x, y]` [m] である。
     pub foot_pos: Vec<Point2>,
-    /// 腰の高さ [m]。移植元との入出力互換性のために保持する。
+    /// 腰の高さ [m]。`LipmParameters::waist_pos_z` と一致する必要がある。
     pub waist_height: f64,
-    /// 一歩の時間 [s]。移植元との入出力互換性のために保持する。
+    /// 一歩の時間 [s]。`LipmParameters::walking_cycle` と一致する必要がある。
     pub walking_step_time: f64,
 }
 
@@ -52,18 +52,40 @@ pub struct WalkingPattern {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GenerationError {
     TooFewFootsteps,
+    NonFiniteFootPosition,
+    NonPositiveFootStepWaistHeight,
+    NonPositiveFootStepWalkingTime,
     NonPositiveControlCycle,
     NonPositiveWalkingCycle,
     NonPositiveWaistHeight,
+    InconsistentWaistHeight,
+    InconsistentWalkingCycle,
+    NonIntegralCycleRatio,
 }
 
 impl fmt::Display for GenerationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let message = match self {
             Self::TooFewFootsteps => "足位置は少なくとも 2 点必要です",
+            Self::NonFiniteFootPosition => "足位置は有限値でなければなりません",
+            Self::NonPositiveFootStepWaistHeight => {
+                "foot_step.waist_height は有限な正の値でなければなりません"
+            }
+            Self::NonPositiveFootStepWalkingTime => {
+                "foot_step.walking_step_time は有限な正の値でなければなりません"
+            }
             Self::NonPositiveControlCycle => "control_cycle は正でなければなりません",
             Self::NonPositiveWalkingCycle => "walking_cycle は正でなければなりません",
             Self::NonPositiveWaistHeight => "waist_pos_z は正でなければなりません",
+            Self::InconsistentWaistHeight => {
+                "foot_step.waist_height と waist_pos_z が一致していません"
+            }
+            Self::InconsistentWalkingCycle => {
+                "foot_step.walking_step_time と walking_cycle が一致していません"
+            }
+            Self::NonIntegralCycleRatio => {
+                "walking_cycle は control_cycle の整数倍でなければなりません"
+            }
         };
         formatter.write_str(message)
     }
@@ -78,8 +100,8 @@ impl std::error::Error for GenerationError {}
 struct SegmentState {
     /// 現在の支持脚位置の添字。
     index: usize,
-    /// 現在の歩行素片を開始してからの時刻 [s]。
-    t: f64,
+    /// 現在の歩行素片内のサンプル番号。
+    sample_index: usize,
     /// この歩行素片の先頭における重心位置 `[x, y]`。
     cog_start: Point2,
     /// この歩行素片の先頭における重心速度 `[vx, vy]`。
@@ -92,9 +114,9 @@ struct SegmentState {
 ///
 /// これは純粋関数である。設定はすべて引数で渡し、ファイル・時刻・ROS 2 クライアント・
 /// Dora API にはアクセスしない。サンプル時刻と計算式は
-/// `LinearInvertedPendulumModel.cpp` を再現している。ただし移植元は最終支持脚切替時に
-/// `foot_pos` の範囲外を読むため、本実装は有効な軌道までを返す（詳細は移植元の
-/// `DEFECTS.md` を参照）。
+/// `LinearInvertedPendulumModel.cpp` の有効な出力を再現している。歩行周期は制御周期の整数倍
+/// でなければならない。移植元は最終支持脚切替時に `foot_pos` の範囲外を読むため、本実装は
+/// 最後に計算可能な支持区間の終端直前までを返す（詳細は移植元の `DEFECTS.md` を参照）。
 pub fn generate_com_trajectory(
     foot_step: &FootStep,
     parameters: LipmParameters,
@@ -118,16 +140,14 @@ pub fn generate_com_trajectory(
     // 最初の歩行素片は、重心位置・速度ともに 0 から開始する。
     let initial = SegmentState {
         index: 0,
-        t: 0.0,
+        sample_index: 0,
         cog_start: [0.0, 0.0],
         velocity_start: [0.0, 0.0],
         foot_land: initial_landing,
     };
 
-    // 移植元はループ時刻に `float` を使う。実際の力学計算は C++ と同じ f64 のままにしつつ、
-    // 終了条件だけは f32 にしてサンプル数を互換にする。
-    let max_time = (parameters.walking_cycle as f32) * ((global_foot_pos.len() - 1) as f32);
-    let mut elapsed = 0.0_f32;
+    // 検証済みなので、比は正の整数として安全にサンプル数へ変換できる。
+    let samples_per_cycle = (parameters.walking_cycle / parameters.control_cycle).round() as usize;
     let mut state = initial;
     let mut pattern = WalkingPattern {
         cc_cog_pos_ref: Vec::new(),
@@ -135,15 +155,16 @@ pub fn generate_com_trajectory(
         wc_foot_land_pos_ref: vec![initial_landing],
     };
 
-    // 時刻が最終歩行時刻を超えるまで、一制御周期ずつ参照値を追加する。
-    while elapsed <= max_time {
+    // 各区間のサンプル番号から時刻を求めるため、浮動小数点の加算誤差は累積しない。
+    loop {
         // 現在の状態と時定数から、この時刻の重心位置・速度を評価する。
-        let (position, velocity) = evaluate_segment(state, time_constant);
+        let segment_time = state.sample_index as f64 * parameters.control_cycle;
+        let (position, velocity) = evaluate_segment(state, segment_time, time_constant);
         // C++ の 3 要素配列と合わせ、未使用の Z 成分には 0.0 を格納する。
         pattern.cc_cog_pos_ref.push([position[0], position[1], 0.0]);
         pattern.cc_cog_vel_ref.push([velocity[0], velocity[1], 0.0]);
 
-        if state.t >= parameters.walking_cycle - 0.01 {
+        if state.sample_index + 1 >= samples_per_cycle {
             // この時点で次の歩行素片を作る。次の次の足位置がなければ移植元は範囲外を
             // 読むため、Rust では有効な最後のサンプルを残して終了する。
             if state.index + 2 >= global_foot_pos.len() {
@@ -163,18 +184,16 @@ pub fn generate_com_trajectory(
             pattern.wc_foot_land_pos_ref.push(next_landing);
             state = SegmentState {
                 index: next_index,
-                // 移植元の応急処置を再現し、切替直後の時刻を 0.01 s とする。
-                t: 0.01,
+                // 切替点は直前の区間ですでに出力しているため、次の制御周期から開始する。
+                sample_index: 1,
                 cog_start: position,
                 velocity_start: velocity,
                 foot_land: next_landing,
             };
         } else {
-            // 同じ歩行素片を継続する場合は、その素片内の時刻だけを進める。
-            state.t += parameters.control_cycle;
+            // 同じ歩行素片を継続する場合は、その素片内のサンプル番号だけを進める。
+            state.sample_index += 1;
         }
-        // 次の出力サンプルのため、全体の経過時間を一制御周期進める。
-        elapsed += parameters.control_cycle as f32;
     }
 
     Ok(pattern)
@@ -185,14 +204,38 @@ fn validate(foot_step: &FootStep, parameters: LipmParameters) -> Result<(), Gene
     if foot_step.foot_pos.len() < 2 {
         return Err(GenerationError::TooFewFootsteps);
     }
-    if parameters.control_cycle <= 0.0 {
+    if foot_step
+        .foot_pos
+        .iter()
+        .flatten()
+        .any(|coordinate| !coordinate.is_finite())
+    {
+        return Err(GenerationError::NonFiniteFootPosition);
+    }
+    if !foot_step.waist_height.is_finite() || foot_step.waist_height <= 0.0 {
+        return Err(GenerationError::NonPositiveFootStepWaistHeight);
+    }
+    if !foot_step.walking_step_time.is_finite() || foot_step.walking_step_time <= 0.0 {
+        return Err(GenerationError::NonPositiveFootStepWalkingTime);
+    }
+    if !parameters.control_cycle.is_finite() || parameters.control_cycle <= 0.0 {
         return Err(GenerationError::NonPositiveControlCycle);
     }
-    if parameters.walking_cycle <= 0.0 {
+    if !parameters.walking_cycle.is_finite() || parameters.walking_cycle <= 0.0 {
         return Err(GenerationError::NonPositiveWalkingCycle);
     }
-    if parameters.waist_pos_z <= 0.0 {
+    if !parameters.waist_pos_z.is_finite() || parameters.waist_pos_z <= 0.0 {
         return Err(GenerationError::NonPositiveWaistHeight);
+    }
+    if foot_step.waist_height != parameters.waist_pos_z {
+        return Err(GenerationError::InconsistentWaistHeight);
+    }
+    if foot_step.walking_step_time != parameters.walking_cycle {
+        return Err(GenerationError::InconsistentWalkingCycle);
+    }
+    let samples_per_cycle = parameters.walking_cycle / parameters.control_cycle;
+    if samples_per_cycle < 1.0 || (samples_per_cycle - samples_per_cycle.round()).abs() > 1e-9 {
+        return Err(GenerationError::NonIntegralCycleRatio);
     }
     Ok(())
 }
@@ -218,10 +261,14 @@ fn globalize_x(local_foot_pos: &[Point2]) -> Vec<Point2> {
         .collect()
 }
 
-fn evaluate_segment(state: SegmentState, time_constant: f64) -> (Point2, Point2) {
+fn evaluate_segment(
+    state: SegmentState,
+    segment_time: f64,
+    time_constant: f64,
+) -> (Point2, Point2) {
     // LIPM の解析解で共通に使う sinh(t/Tc) と cosh(t/Tc) を先に計算する。
-    let sinh = (state.t / time_constant).sinh();
-    let cosh = (state.t / time_constant).cosh();
+    let sinh = (segment_time / time_constant).sinh();
+    let cosh = (segment_time / time_constant).cosh();
     // `point_zip` により X/Y へ同じ演算を適用し、(p0 - u) cosh(t/Tc) を求める。
     let position = point_zip(state.cog_start, state.foot_land, |start, land| {
         (start - land) * cosh
@@ -327,47 +374,4 @@ pub const DEFAULT_PARAMETERS: LipmParameters = LipmParameters {
 // }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const EPSILON: f64 = 1e-12;
-
-    fn assert_close(actual: f64, expected: f64) {
-        assert!(
-            (actual - expected).abs() < EPSILON,
-            "expected {expected:.15}, got {actual:.15}"
-        );
-    }
-
-    #[test]
-    fn source_default_input_generates_the_valid_cpp_prefix() {
-        let pattern = generate_com_trajectory(&default_foot_step(), DEFAULT_PARAMETERS).unwrap();
-
-        // 最終範囲外アクセスより前の C++ 計算式から得た固定値。C++ の集約初期化に合わせて
-        // Z は常に 0 とする。固定値との比較で、将来の変更による数値ずれを検出する。
-        assert_eq!(pattern.cc_cog_pos_ref.len(), 554);
-        assert_eq!(pattern.cc_cog_vel_ref.len(), 554);
-        assert_eq!(pattern.wc_foot_land_pos_ref.len(), 7);
-        assert_eq!(pattern.cc_cog_pos_ref[0], [0.0, 0.0, 0.0]);
-        assert_close(pattern.cc_cog_pos_ref[1][0], 0.0);
-        assert_close(pattern.cc_cog_pos_ref[1][1], 0.000_000_249_720_461_166);
-        assert_close(pattern.cc_cog_pos_ref[79][1], 0.017_009_414_478_489);
-        assert_close(pattern.cc_cog_pos_ref[80][0], 0.000_000_204_118_178);
-        assert_close(pattern.cc_cog_pos_ref[80][1], 0.018_253_034_418_730);
-        assert_eq!(pattern.cc_cog_pos_ref[553][2], 0.0);
-    }
-
-    #[test]
-    fn input_validation_is_explicit() {
-        let error = generate_com_trajectory(
-            &FootStep {
-                foot_pos: vec![[0.0, 0.0]],
-                waist_height: 0.1,
-                walking_step_time: 0.8,
-            },
-            DEFAULT_PARAMETERS,
-        )
-        .unwrap_err();
-        assert_eq!(error, GenerationError::TooFewFootsteps);
-    }
-}
+mod tests;

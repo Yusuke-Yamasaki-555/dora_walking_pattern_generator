@@ -1,0 +1,4 @@
+[env]
+# Arch Linux の `mujoco` パッケージは pkg-config ファイルを提供しないため、
+# mujoco-rs に共有ライブラリの標準インストール先を明示する。
+MUJOCO_DYNAMIC_LINK_DIR = "/usr/lib"
