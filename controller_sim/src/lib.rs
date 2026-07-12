@@ -3,18 +3,23 @@
 //! 制御則は純粋関数へ分離し、MuJoCoを更新する副作用は`CassieSimulation`に閉じ込める。
 
 mod controller;
+mod logging;
 mod simulation;
 mod state;
 
 use std::{fmt, path::PathBuf};
 
-pub use controller::{ActuatorLimit, MotorCommand, PdGains, compute_motor_commands};
+pub use controller::{
+    ActuatorLimit, MotorCommand, PdGains, compute_motor_commands, sinusoidal_joint_target,
+};
+pub use logging::{JointAngleLog, JointAngleSample, LoggingError};
 pub use simulation::{
     CONTROL_PERIOD, CassieSimulation, EXPECTED_SIMULATION_PERIOD, STEPS_PER_CONTROL_PERIOD,
     SimulationConfig,
 };
 pub use state::{
-    ActuatorState, JointState, JointTarget, NamedValue, NamedValues, Pose, RobotState,
+    ActuatorState, JointPositionLimit, JointState, JointTarget, NamedValue, NamedValues, Pose,
+    RobotState,
 };
 
 /// モデル構成または制御入力が要件を満たさない場合のエラー。
@@ -31,6 +36,7 @@ pub enum SimulationError {
     NonFiniteJointTarget(String),
     DuplicateJointTarget,
     InvalidGains,
+    InvalidSinusoidalTarget,
 }
 
 impl fmt::Display for SimulationError {
@@ -68,6 +74,9 @@ impl fmt::Display for SimulationError {
             }
             Self::DuplicateJointTarget => formatter.write_str("関節目標の名前が重複しています"),
             Self::InvalidGains => formatter.write_str("PDゲインは有限な非負値でなければなりません"),
+            Self::InvalidSinusoidalTarget => {
+                formatter.write_str("正弦波目標の時刻、周波数、振幅率、関節可動範囲が不正です")
+            }
         }
     }
 }

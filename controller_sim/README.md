@@ -43,5 +43,14 @@ cargo test -p controller_sim
 cargo run -p controller_sim
 ```
 
-デモはCassieを`home`キーフレームから開始し、左hip-rollへ小さな正弦波目標を与えます。
-ウィンドウを閉じると終了します。
+デモはCassieを`home`キーフレームから開始し、左右のknee関節へ0.5 Hzの正弦波目標を
+同相で与えます。振幅はMJCF可動半幅の95%で、2秒間に上下限近傍を一巡します。
+
+10 msの制御周期ごとに全10能動関節の角度を記録し、2秒後に次の空白区切りdatファイルを
+出力して終了します。
+
+```text
+controller_sim/logs/joint_angles.dat
+```
+
+先頭行は時刻と関節名のヘッダーで、以降の200行が`time [s]`と`joint angle [rad]`です。

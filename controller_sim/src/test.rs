@@ -1,4 +1,5 @@
 use super::*;
+use std::fs;
 
 const ACTIVE_JOINT_NAMES: [&str; 10] = [
     "left-hip-roll",
@@ -236,4 +237,59 @@ fn positive_joint_target_produces_a_corresponding_response() {
 
     assert!(control > 0.0);
     assert!(final_position > initial_position);
+}
+
+#[test]
+fn knee_sine_target_reaches_near_both_mjcf_limits() {
+    let simulation = load_simulation();
+    let limit = simulation.joint_position_limit("left-knee").unwrap();
+    let upper = sinusoidal_joint_target(limit, 0.5, 0.5, 0.95).unwrap();
+    let lower = sinusoidal_joint_target(limit, 1.5, 0.5, 0.95).unwrap();
+    let expected_margin = (limit.upper - limit.lower) * 0.025;
+
+    assert!((upper.position - (limit.upper - expected_margin)).abs() < 1e-12);
+    assert!((lower.position - (limit.lower + expected_margin)).abs() < 1e-12);
+    assert!(upper.velocity.abs() < 1e-12);
+    assert!(lower.velocity.abs() < 1e-12);
+}
+
+#[test]
+fn records_every_control_period_and_writes_two_second_dat_file() {
+    let mut simulation = load_simulation();
+    let mut targets = simulation.hold_current_targets();
+    let knee_limits = ["left-knee", "right-knee"]
+        .map(|name| simulation.joint_position_limit(name).unwrap().clone());
+    let mut log = JointAngleLog::new(&simulation.state());
+
+    for _ in 0..200 {
+        let time = simulation.state().simulation_time;
+        for limit in &knee_limits {
+            let sine_target = sinusoidal_joint_target(limit, time, 0.5, 0.95).unwrap();
+            let target_name = sine_target.name.clone();
+            *targets
+                .iter_mut()
+                .find(|target| target.name == target_name)
+                .unwrap() = sine_target;
+        }
+        let state = simulation.step_control(&targets).unwrap();
+        log.record(&state).unwrap();
+    }
+
+    assert_eq!(log.joint_names(), ACTIVE_JOINT_NAMES);
+    assert_eq!(log.samples().len(), 200);
+    assert!((log.samples().first().unwrap().simulation_time - 0.01).abs() < 1e-12);
+    assert!((log.samples().last().unwrap().simulation_time - 2.0).abs() < 1e-9);
+
+    let output = std::env::temp_dir().join(format!(
+        "controller_sim_joint_angles_{}.dat",
+        std::process::id()
+    ));
+    log.write_dat(&output).unwrap();
+    let contents = fs::read_to_string(&output).unwrap();
+    fs::remove_file(output).unwrap();
+    let lines: Vec<&str> = contents.lines().collect();
+
+    assert_eq!(lines.len(), 201);
+    assert!(lines[0].starts_with("# time_s left-hip-roll_rad"));
+    assert_eq!(lines[1].split_whitespace().count(), 11);
 }

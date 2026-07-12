@@ -5,8 +5,8 @@ use std::{collections::HashMap, path::Path};
 use mujoco_rs::prelude::{MjData, MjModel, MjtObj};
 
 use crate::{
-    ActuatorLimit, ActuatorState, JointState, JointTarget, NamedValue, NamedValues, PdGains, Pose,
-    RobotState, SimulationError, compute_motor_commands,
+    ActuatorLimit, ActuatorState, JointPositionLimit, JointState, JointTarget, NamedValue,
+    NamedValues, PdGains, Pose, RobotState, SimulationError, compute_motor_commands,
 };
 
 /// Issue #1で確定したコントローラ周期 [s]。
@@ -27,6 +27,7 @@ struct ActiveJoint {
     qpos_address: usize,
     qvel_address: usize,
     actuator_id: usize,
+    position_limit: JointPositionLimit,
 }
 
 #[derive(Clone, Debug)]
@@ -100,6 +101,14 @@ impl CassieSimulation {
                 velocity: 0.0,
             })
             .collect()
+    }
+
+    /// 指定した能動関節のMJCF可動範囲を返す。
+    pub fn joint_position_limit(&self, name: &str) -> Option<&JointPositionLimit> {
+        self.active_joints
+            .iter()
+            .find(|joint| joint.name == name)
+            .map(|joint| &joint.position_limit)
     }
 
     /// 目標値から制御入力を計算し、0.5 ms刻みで20ステップ進める。
@@ -210,6 +219,11 @@ fn active_joints(model: &MjModel) -> Result<Vec<ActiveJoint>, SimulationError> {
                 .name_to_id(MjtObj::mjOBJ_JOINT, &name)
                 .ok_or_else(|| SimulationError::MissingModelObject(format!("joint {name}")))?;
             Ok(ActiveJoint {
+                position_limit: JointPositionLimit {
+                    name: name.clone(),
+                    lower: model.jnt_range()[joint_id][0],
+                    upper: model.jnt_range()[joint_id][1],
+                },
                 name,
                 qpos_address: model.jnt_qposadr()[joint_id] as usize,
                 qvel_address: model.jnt_dofadr()[joint_id] as usize,

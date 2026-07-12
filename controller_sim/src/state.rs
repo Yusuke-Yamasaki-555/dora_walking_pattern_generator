@@ -34,6 +34,14 @@ pub struct JointState {
     pub velocity: f64,
 }
 
+/// MJCFで定義されたhinge関節の可動範囲 [rad]。
+#[derive(Clone, Debug, PartialEq)]
+pub struct JointPositionLimit {
+    pub name: String,
+    pub lower: f64,
+    pub upper: f64,
+}
+
 /// MuJoCoの1つのアクチュエータに関する状態。
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActuatorState {

@@ -69,8 +69,8 @@ cargo run -p controller_sim
 ```
 
 シミュレーション周期はCassie MJCF既定の0.5 ms、コントローラ周期は10 msです。デモでは
-`home`姿勢から開始し、左hip-rollへ小さな正弦波目標を入力します。viewerウィンドウを閉じると
-終了します。
+`home`姿勢から開始し、左右の膝へ可動範囲近くまで使う正弦波目標を入力します。2秒後に終了し、
+10 msごとの全能動関節角度を`controller_sim/logs/joint_angles.dat`へ出力します。
 
 詳細は[`controller_sim/README.md`](controller_sim/README.md)を参照してください。
 

@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::{JointState, JointTarget, SimulationError};
+use crate::{JointPositionLimit, JointState, JointTarget, SimulationError};
 
 /// 全能動関節に適用する暫定PDゲイン。
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -15,8 +15,8 @@ impl Default for PdGains {
     fn default() -> Self {
         // Cassieを立位安定化する最終ゲインではなく、入出力確認用の控えめな暫定値。
         Self {
-            position: 5.0,
-            velocity: 0.2,
+            position: 40.0,
+            velocity: 1.0,
         }
     }
 }
@@ -34,6 +34,39 @@ pub struct ActuatorLimit {
 pub struct MotorCommand {
     pub name: String,
     pub control: f64,
+}
+
+/// 関節可動範囲の中央を基準に、上下限近傍まで往復する正弦波目標を生成する。
+///
+/// `range_utilization`は`0.0..=1.0`で指定する。`0.95`なら可動半幅の95%を振幅として使い、
+/// 上下限それぞれに可動範囲全体の2.5%だけ余裕を残す。
+pub fn sinusoidal_joint_target(
+    limit: &JointPositionLimit,
+    simulation_time: f64,
+    frequency_hz: f64,
+    range_utilization: f64,
+) -> Result<JointTarget, SimulationError> {
+    if !simulation_time.is_finite()
+        || !frequency_hz.is_finite()
+        || frequency_hz <= 0.0
+        || !range_utilization.is_finite()
+        || !(0.0..=1.0).contains(&range_utilization)
+        || !limit.lower.is_finite()
+        || !limit.upper.is_finite()
+        || limit.lower >= limit.upper
+    {
+        return Err(SimulationError::InvalidSinusoidalTarget);
+    }
+
+    let center = (limit.lower + limit.upper) / 2.0;
+    let amplitude = (limit.upper - limit.lower) / 2.0 * range_utilization;
+    let angular_frequency = 2.0 * std::f64::consts::PI * frequency_hz;
+    let phase = angular_frequency * simulation_time;
+    Ok(JointTarget {
+        name: limit.name.clone(),
+        position: center + amplitude * phase.sin(),
+        velocity: amplitude * angular_frequency * phase.cos(),
+    })
 }
 
 /// 目標値と現在値からPD制御入力を計算する。
