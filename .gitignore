@@ -1,3 +1,6 @@
 # Cargo workspace の成果物とルート以外のロックファイル。
 target/
 /*/Cargo.lock
+
+# Cassieモデルはgit sparse-checkoutでローカル取得し、このリポジトリでは追跡しない。
+/mujoco_menagerie/

@@ -2,6 +2,7 @@
 name = "controller_sim"
 version = "0.1.0"
 edition = "2024"
+description = "MuJoCo Cassie controller and state reader for the Dora walking pattern generator"
 
 [dependencies]
 mujoco-rs = { version = "5.0.0", features = ["viewer-ui", "renderer-winit-fallback"] }
