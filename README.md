@@ -60,6 +60,10 @@ cargo test --workspace
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
+同じ検証はGitHub Actionsの`CI / Rust and MuJoCo`でも実行します。CIは公式MuJoCo 3.9.0と
+固定したCassieモデルを取得し、Cargo・MuJoCoのcacheとテストログartifactを使用します。
+Wayland viewerの表示確認はCIに含めず、ローカル環境で行います。
+
 ## Cassieシミュレータの起動
 
 Wayland上でCassie viewerを起動します。
