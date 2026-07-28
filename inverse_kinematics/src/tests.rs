@@ -1,4 +1,4 @@
-use std::f64::consts::FRAC_PI_2;
+use std::f64::consts::{FRAC_PI_2, FRAC_PI_6, FRAC_PI_8};
 
 use crate::{
     ExternalJacobian, IkError, IkRequest, IkSettings, IkStatus, JointAngles, JointLimit,
@@ -18,26 +18,53 @@ orientation_weight=0.9999
 minimum_bias=1e-3
 ";
 
-struct SyntheticFiveDofModel {
+const CASSIE_HOME_ANGLES: JointAngles =
+    JointAngles([0.004_499_56, 0.0, 0.497_301, -1.199_7, -1.596_81]);
+
+struct CassieKinematicsStub {
     names: [String; 5],
     limits: [JointLimit; 5],
     non_finite_jacobian: bool,
 }
 
-impl SyntheticFiveDofModel {
+impl CassieKinematicsStub {
     fn new() -> Self {
         Self {
-            names: std::array::from_fn(|index| format!("joint-{index}")),
-            limits: [JointLimit {
-                minimum_rad: -2.0,
-                maximum_rad: 2.0,
-            }; 5],
+            names: [
+                "left-hip-roll".into(),
+                "left-hip-yaw".into(),
+                "left-hip-pitch".into(),
+                "left-knee".into(),
+                "left-foot".into(),
+            ],
+            limits: [
+                JointLimit {
+                    minimum_rad: -0.261_799,
+                    maximum_rad: FRAC_PI_8,
+                },
+                JointLimit {
+                    minimum_rad: -FRAC_PI_8,
+                    maximum_rad: FRAC_PI_8,
+                },
+                JointLimit {
+                    minimum_rad: -0.872_665,
+                    maximum_rad: 1.396_263,
+                },
+                JointLimit {
+                    minimum_rad: -2.862_340,
+                    maximum_rad: -0.645_772,
+                },
+                JointLimit {
+                    minimum_rad: -2.443_461,
+                    maximum_rad: -FRAC_PI_6,
+                },
+            ],
             non_finite_jacobian: false,
         }
     }
 }
 
-impl LegKinematics for SyntheticFiveDofModel {
+impl LegKinematics for CassieKinematicsStub {
     fn joint_names(&self) -> &[String; 5] {
         &self.names
     }
@@ -51,6 +78,8 @@ impl LegKinematics for SyntheticFiveDofModel {
         waist_pose_in_world: &Pose,
         joint_angles: &JointAngles,
     ) -> Result<KinematicEvaluation, KinematicsError> {
+        let delta: [f64; 5] =
+            std::array::from_fn(|index| joint_angles.0[index] - CASSIE_HOME_ANGLES.0[index]);
         let mut jacobian: ExternalJacobian = [[0.0; 5]; 6];
         for (index, row) in jacobian.iter_mut().take(5).enumerate() {
             row[index] = 1.0;
@@ -61,11 +90,11 @@ impl LegKinematics for SyntheticFiveDofModel {
         Ok(KinematicEvaluation {
             foot_pose_in_world: Pose {
                 position_m: [
-                    waist_pose_in_world.position_m[0] + joint_angles.0[0],
-                    waist_pose_in_world.position_m[1] + joint_angles.0[1],
-                    waist_pose_in_world.position_m[2] + joint_angles.0[2],
+                    waist_pose_in_world.position_m[0] + delta[0],
+                    waist_pose_in_world.position_m[1] + delta[1],
+                    waist_pose_in_world.position_m[2] - 1.0 + delta[2],
                 ],
-                orientation_rpy_rad: [joint_angles.0[3], joint_angles.0[4], 0.0],
+                orientation_rpy_rad: [delta[3], delta[4], 0.0],
             },
             jacobian,
         })
@@ -83,10 +112,10 @@ fn default_request() -> IkRequest {
             orientation_rpy_rad: [0.0; 3],
         },
         target_foot_pose_in_world: Pose {
-            position_m: [0.2, -0.1, 0.7],
+            position_m: [0.2, -0.1, -0.3],
             orientation_rpy_rad: [0.1, -0.2, 0.0],
         },
-        initial_angles: JointAngles([0.0; 5]),
+        initial_angles: CASSIE_HOME_ANGLES,
         previous_angles: None,
         control_period_s: 0.01,
     }
@@ -207,7 +236,7 @@ fn rejects_non_finite_external_jacobian() {
 #[test]
 fn solves_reachable_five_dof_pose_and_returns_zero_initial_velocity() {
     let solution = solve_ik(
-        &SyntheticFiveDofModel::new(),
+        &CassieKinematicsStub::new(),
         &default_request(),
         &default_settings(),
     )
@@ -217,7 +246,13 @@ fn solves_reachable_five_dof_pose_and_returns_zero_initial_velocity() {
     assert!(solution.iterations > 0);
     assert!(solution.residuals.weighted <= default_settings().pose_tolerance);
     assert_eq!(solution.velocities.0, [0.0; 5]);
-    for (actual, expected) in solution.angles.0.iter().zip([0.2, -0.1, -0.3, 0.1, -0.2]) {
+    for (actual, expected) in solution.angles.0.iter().zip([
+        CASSIE_HOME_ANGLES.0[0] + 0.2,
+        CASSIE_HOME_ANGLES.0[1] - 0.1,
+        CASSIE_HOME_ANGLES.0[2] - 0.3,
+        CASSIE_HOME_ANGLES.0[3] + 0.1,
+        CASSIE_HOME_ANGLES.0[4] - 0.2,
+    ]) {
         assert!((actual - expected).abs() < 1e-8);
     }
 }
@@ -227,7 +262,7 @@ fn returns_finite_approximation_for_unreachable_sixth_pose_axis() {
     let mut request = default_request();
     request.target_foot_pose_in_world.orientation_rpy_rad[2] = 0.4;
 
-    let solution = solve_ik(&SyntheticFiveDofModel::new(), &request, &default_settings()).unwrap();
+    let solution = solve_ik(&CassieKinematicsStub::new(), &request, &default_settings()).unwrap();
 
     assert_eq!(solution.status, IkStatus::StepTooSmall);
     assert!(solution.residuals.orientation_rad > 0.39);
@@ -237,15 +272,15 @@ fn returns_finite_approximation_for_unreachable_sixth_pose_axis() {
 #[test]
 fn calculates_joint_velocity_from_previous_cycle() {
     let mut request = default_request();
-    request.previous_angles = Some(JointAngles([0.1, -0.2, -0.3, 0.0, -0.1]));
+    request.previous_angles = Some(CASSIE_HOME_ANGLES);
 
-    let solution = solve_ik(&SyntheticFiveDofModel::new(), &request, &default_settings()).unwrap();
+    let solution = solve_ik(&CassieKinematicsStub::new(), &request, &default_settings()).unwrap();
 
     for (actual, expected) in solution
         .velocities
         .0
         .iter()
-        .zip([10.0, 10.0, 0.0, 10.0, -10.0])
+        .zip([20.0, -10.0, -30.0, 10.0, -20.0])
     {
         assert!((actual - expected).abs() < 1e-6);
     }
@@ -256,7 +291,7 @@ fn reports_max_iterations_with_the_latest_residual() {
     let mut settings = default_settings();
     settings.max_iterations = 1;
 
-    let solution = solve_ik(&SyntheticFiveDofModel::new(), &default_request(), &settings).unwrap();
+    let solution = solve_ik(&CassieKinematicsStub::new(), &default_request(), &settings).unwrap();
 
     assert_eq!(solution.status, IkStatus::MaxIterations);
     assert_eq!(solution.iterations, 1);
@@ -268,14 +303,92 @@ fn rejects_invalid_runtime_inputs_and_model_outputs() {
     let mut request = default_request();
     request.control_period_s = 0.0;
     assert_eq!(
-        solve_ik(&SyntheticFiveDofModel::new(), &request, &default_settings()),
+        solve_ik(&CassieKinematicsStub::new(), &request, &default_settings()),
         Err(IkError::InvalidControlPeriod)
     );
 
-    let mut model = SyntheticFiveDofModel::new();
+    let mut model = CassieKinematicsStub::new();
     model.non_finite_jacobian = true;
     assert_eq!(
         solve_ik(&model, &default_request(), &default_settings()),
         Err(IkError::InvalidKinematicEvaluation)
+    );
+}
+
+#[test]
+fn uses_cassie_left_leg_joint_order_and_mjcf_limits() {
+    let model = CassieKinematicsStub::new();
+
+    assert_eq!(
+        model
+            .joint_names()
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        vec![
+            "left-hip-roll",
+            "left-hip-yaw",
+            "left-hip-pitch",
+            "left-knee",
+            "left-foot",
+        ]
+    );
+    for (angle, limit) in CASSIE_HOME_ANGLES.0.iter().zip(model.joint_limits()) {
+        assert!((limit.minimum_rad..=limit.maximum_rad).contains(angle));
+    }
+}
+
+#[test]
+fn clamps_updates_to_cassie_joint_limits() {
+    let model = CassieKinematicsStub::new();
+    let mut request = default_request();
+    request.target_foot_pose_in_world.position_m[0] = 1.0;
+
+    let solution = solve_ik(&model, &request, &default_settings()).unwrap();
+
+    assert_eq!(solution.status, IkStatus::StepTooSmall);
+    assert_eq!(solution.angles.0[0], model.joint_limits()[0].maximum_rad);
+}
+
+#[test]
+fn rejects_invalid_settings_names_limits_and_pose() {
+    let mut settings = default_settings();
+    settings.minimum_bias = 0.0;
+    assert!(matches!(
+        solve_ik(&CassieKinematicsStub::new(), &default_request(), &settings),
+        Err(IkError::InvalidSettings("minimum_bias"))
+    ));
+
+    let mut model = CassieKinematicsStub::new();
+    model.names[1] = model.names[0].clone();
+    assert!(matches!(
+        solve_ik(&model, &default_request(), &default_settings()),
+        Err(IkError::DuplicateJointName(_))
+    ));
+
+    let mut model = CassieKinematicsStub::new();
+    model.limits[2].maximum_rad = model.limits[2].minimum_rad;
+    assert_eq!(
+        solve_ik(&model, &default_request(), &default_settings()),
+        Err(IkError::InvalidJointLimit { index: 2 })
+    );
+
+    let mut request = default_request();
+    request.target_foot_pose_in_world.position_m[2] = f64::INFINITY;
+    assert_eq!(
+        solve_ik(&CassieKinematicsStub::new(), &request, &default_settings()),
+        Err(IkError::InvalidPose("target_foot_pose_in_world"))
+    );
+}
+
+#[test]
+fn produces_deterministic_solution() {
+    let model = CassieKinematicsStub::new();
+    let request = default_request();
+    let settings = default_settings();
+
+    assert_eq!(
+        solve_ik(&model, &request, &settings),
+        solve_ik(&model, &request, &settings)
     );
 }
