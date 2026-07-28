@@ -8,6 +8,7 @@ RustとDoraへの移植を進めている二足歩行パターン生成・シミ
 
 - `com_trajectory`: 線形倒立振子モデルによる重心軌道生成
 - `walking_logger`: 軌道データのロギング・PNG可視化
+- `inverse_kinematics`: Cassie片脚5自由度の数値逆運動学コア
 - `controller_sim`: MuJoCo Cassieへの制御入力と状態読み出し
 
 ## 必要な環境
@@ -92,6 +93,18 @@ cargo run -p walking_logger
 ```bash
 cargo test -p com_trajectory
 ```
+
+## 逆運動学
+
+Cassie片脚5自由度のIK計算コアをテストします。
+
+```bash
+cargo test -p inverse_kinematics
+```
+
+IKは足先6次元Poseを重み付き近似し、関節角と角度差分による関節角速度を返します。
+Cassieの受動関節と閉リンク拘束を含む実モデル評価はIssue #8の運動学境界へ分離しています。
+詳細は[`inverse_kinematics/README.md`](inverse_kinematics/README.md)を参照してください。
 
 ## Dora対応
 

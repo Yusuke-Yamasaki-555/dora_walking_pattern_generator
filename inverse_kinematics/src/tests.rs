@@ -25,6 +25,7 @@ struct CassieKinematicsStub {
     names: [String; 5],
     limits: [JointLimit; 5],
     non_finite_jacobian: bool,
+    evaluation_error: bool,
 }
 
 impl CassieKinematicsStub {
@@ -60,6 +61,7 @@ impl CassieKinematicsStub {
                 },
             ],
             non_finite_jacobian: false,
+            evaluation_error: false,
         }
     }
 }
@@ -78,6 +80,9 @@ impl LegKinematics for CassieKinematicsStub {
         waist_pose_in_world: &Pose,
         joint_angles: &JointAngles,
     ) -> Result<KinematicEvaluation, KinematicsError> {
+        if self.evaluation_error {
+            return Err(KinematicsError::new("closed-link evaluation failed"));
+        }
         let delta: [f64; 5] =
             std::array::from_fn(|index| joint_angles.0[index] - CASSIE_HOME_ANGLES.0[index]);
         let mut jacobian: ExternalJacobian = [[0.0; 5]; 6];
@@ -133,6 +138,14 @@ fn parses_complete_settings() {
             orientation_weight: 0.9999,
             minimum_bias: 1e-3,
         }
+    );
+}
+
+#[test]
+fn parses_repository_default_settings_file() {
+    assert_eq!(
+        parse_settings(include_str!("../config/ik.conf")).unwrap(),
+        default_settings()
     );
 }
 
@@ -313,6 +326,13 @@ fn rejects_invalid_runtime_inputs_and_model_outputs() {
         solve_ik(&model, &default_request(), &default_settings()),
         Err(IkError::InvalidKinematicEvaluation)
     );
+
+    let mut model = CassieKinematicsStub::new();
+    model.evaluation_error = true;
+    assert!(matches!(
+        solve_ik(&model, &default_request(), &default_settings()),
+        Err(IkError::Kinematics(_))
+    ));
 }
 
 #[test]
@@ -378,6 +398,20 @@ fn rejects_invalid_settings_names_limits_and_pose() {
     assert_eq!(
         solve_ik(&CassieKinematicsStub::new(), &request, &default_settings()),
         Err(IkError::InvalidPose("target_foot_pose_in_world"))
+    );
+
+    let mut request = default_request();
+    request.initial_angles.0[3] = 0.0;
+    assert_eq!(
+        solve_ik(&CassieKinematicsStub::new(), &request, &default_settings()),
+        Err(IkError::InitialAngleOutOfRange { index: 3 })
+    );
+
+    let mut request = default_request();
+    request.previous_angles = Some(JointAngles([f64::NAN; 5]));
+    assert_eq!(
+        solve_ik(&CassieKinematicsStub::new(), &request, &default_settings()),
+        Err(IkError::InvalidPreviousJointAngles)
     );
 }
 
