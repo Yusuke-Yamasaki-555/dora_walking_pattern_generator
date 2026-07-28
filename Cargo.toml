@@ -3,5 +3,6 @@ resolver = "3"
 members = [
     "com_trajectory",
     "controller_sim",
+    "inverse_kinematics",
     "walking_logger",
 ]
