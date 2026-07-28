@@ -119,3 +119,18 @@ fn validate(settings: IkSettings) -> Result<(), SettingsError> {
     }
     Ok(())
 }
+
+pub(crate) fn invalid_field(settings: &IkSettings) -> Option<&'static str> {
+    if settings.max_iterations == 0 {
+        return Some(MAX_ITERATIONS);
+    }
+    [
+        (POSE_TOLERANCE, settings.pose_tolerance),
+        (STEP_TOLERANCE, settings.step_tolerance),
+        (POSITION_WEIGHT, settings.position_weight),
+        (ORIENTATION_WEIGHT, settings.orientation_weight),
+        (MINIMUM_BIAS, settings.minimum_bias),
+    ]
+    .into_iter()
+    .find_map(|(key, value)| (!value.is_finite() || value <= 0.0).then_some(key))
+}

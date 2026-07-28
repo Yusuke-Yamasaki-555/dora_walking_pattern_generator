@@ -3,13 +3,16 @@ use std::fmt;
 /// IK入力、モデル評価、数値計算を継続できない場合のエラー。
 #[derive(Clone, Debug, PartialEq)]
 pub enum IkError {
+    InvalidSettings(&'static str),
     InvalidPose(&'static str),
+    InvalidJointName { index: usize },
     InvalidJointAngles,
     InvalidPreviousJointAngles,
     InvalidControlPeriod,
     InvalidJointLimit { index: usize },
     InitialAngleOutOfRange { index: usize },
     DuplicateJointName(String),
+    Kinematics(KinematicsError),
     InvalidKinematicEvaluation,
     LinearSolveFailed,
     NonFiniteComputation,
@@ -18,8 +21,14 @@ pub enum IkError {
 impl fmt::Display for IkError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidSettings(name) => {
+                write!(formatter, "IK設定値が不正です: {name}")
+            }
             Self::InvalidPose(name) => {
                 write!(formatter, "{name}の位置と姿勢は有限値でなければなりません")
+            }
+            Self::InvalidJointName { index } => {
+                write!(formatter, "関節{index}の名前が空です")
             }
             Self::InvalidJointAngles => {
                 formatter.write_str("初期関節角はすべて有限値でなければなりません")
@@ -39,6 +48,9 @@ impl fmt::Display for IkError {
             Self::DuplicateJointName(name) => {
                 write!(formatter, "関節名が重複しています: {name}")
             }
+            Self::Kinematics(error) => {
+                write!(formatter, "運動学モデルの評価に失敗しました: {error}")
+            }
             Self::InvalidKinematicEvaluation => {
                 formatter.write_str("運動学モデルが有限なPoseとヤコビアンを返しませんでした")
             }
@@ -51,6 +63,28 @@ impl fmt::Display for IkError {
 }
 
 impl std::error::Error for IkError {}
+
+/// Issue #8側の運動学評価が失敗した理由。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KinematicsError {
+    message: String,
+}
+
+impl KinematicsError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for KinematicsError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for KinematicsError {}
 
 /// `key=value`形式のIK設定が契約を満たさない場合のエラー。
 #[derive(Clone, Debug, PartialEq)]

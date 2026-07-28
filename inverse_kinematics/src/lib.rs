@@ -6,11 +6,19 @@
 //! モデル取得、設定ファイル読込、Dora通信はこの計算コアの外側で行う。
 
 mod error;
+mod jacobian;
+mod kinematics;
+mod pose;
 mod settings;
+mod solver;
 mod types;
+mod velocity;
 
-pub use error::{IkError, SettingsError};
+pub use error::{IkError, KinematicsError, SettingsError};
+pub use jacobian::ExternalJacobian;
+pub use kinematics::{KinematicEvaluation, LegKinematics};
 pub use settings::{IkSettings, parse_settings};
+pub use solver::solve_ik;
 pub use types::{
     IK_JOINT_COUNT, IkRequest, IkSolution, IkStatus, JointAngles, JointLimit, JointVelocities,
     Pose, Residuals,
