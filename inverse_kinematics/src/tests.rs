@@ -300,6 +300,18 @@ fn calculates_joint_velocity_from_previous_cycle() {
 }
 
 #[test]
+fn rejects_non_finite_joint_velocity_result() {
+    let mut request = default_request();
+    request.previous_angles = Some(CASSIE_HOME_ANGLES);
+    request.control_period_s = f64::from_bits(1);
+
+    assert_eq!(
+        solve_ik(&CassieKinematicsStub::new(), &request, &default_settings()),
+        Err(IkError::NonFiniteComputation)
+    );
+}
+
+#[test]
 fn reports_max_iterations_with_the_latest_residual() {
     let mut settings = default_settings();
     settings.max_iterations = 1;
@@ -412,6 +424,15 @@ fn rejects_invalid_settings_names_limits_and_pose() {
     assert_eq!(
         solve_ik(&CassieKinematicsStub::new(), &request, &default_settings()),
         Err(IkError::InvalidPreviousJointAngles)
+    );
+
+    let mut request = default_request();
+    let mut previous_angles = CASSIE_HOME_ANGLES;
+    previous_angles.0[3] = 0.0;
+    request.previous_angles = Some(previous_angles);
+    assert_eq!(
+        solve_ik(&CassieKinematicsStub::new(), &request, &default_settings()),
+        Err(IkError::PreviousAngleOutOfRange { index: 3 })
     );
 }
 

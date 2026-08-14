@@ -15,7 +15,13 @@ pub(crate) fn calculate(
         return Err(IkError::InvalidPreviousJointAngles);
     }
 
-    Ok(JointVelocities(std::array::from_fn(|index| {
+    let velocities = JointVelocities(std::array::from_fn(|index| {
         (angles.0[index] - previous.0[index]) / control_period_s
-    })))
+    }));
+    velocities
+        .0
+        .iter()
+        .all(|velocity| velocity.is_finite())
+        .then_some(velocities)
+        .ok_or(IkError::NonFiniteComputation)
 }

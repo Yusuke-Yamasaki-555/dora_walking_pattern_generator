@@ -16,6 +16,42 @@ Cassieの片脚5能動関節を対象とする、杉原Levenberg-Marquardt法の
 Issue #8が未実装のため、現時点のテストでは同じ公開契約を満たす運動学スタブを使用します。
 実Cassieへの接続完了には、Issue #8から閉リンク拘束整合済みの`LegKinematics`実装が必要です。
 
+`LegKinematics::evaluate`が返すヤコビアンは、並進・回転ともworld frameで表します。回転3行は
+RPY角の時間微分ではなくworld frameの角速度であり、`pose::error`が作る相対回転ベクトルと同じ
+座標系でなければなりません。足先Poseの評価点とframeは、重心軌道側の目標Poseと一致するよう
+Issue #8で決定し、モデルアダプタの契約として記録する必要があります。
+
+## 関数の関係
+
+```mermaid
+flowchart TD
+    Config["設定ファイル文字列"] --> Parse["parse_settings"]
+    Parse --> Settings["IkSettings"]
+    Request["IkRequest"] --> Solve["solve_ik"]
+    Settings --> Solve
+    Model["LegKinematics"] --> Solve
+
+    Solve --> Validate["validate_inputs"]
+    Validate -. "関節名・可動範囲" .-> Model
+    Solve --> Evaluate["evaluate"]
+    Evaluate -. "足先Pose・6x5ヤコビアン" .-> Model
+    Evaluate --> Error["pose::error"]
+    Error --> Residuals["pose::residuals"]
+    Error --> Step["lm_step"]
+    Evaluate --> Matrix["jacobian::to_matrix"]
+    Matrix --> Step
+    Step --> Apply["apply_step"]
+    Apply --> Evaluate
+
+    Residuals --> Finish["solution"]
+    Finish --> Velocity["velocity::calculate"]
+    Velocity --> Output["IkSolution"]
+```
+
+`solve_ik`は収束、更新量下限、最大反復のいずれかで`solution`へ進みます。入力不正、モデル
+評価失敗、非有限値、行列分解失敗は`IkError`として返し、未収束の有限な近似解は
+`IkStatus`と残差を含む`IkSolution`として返します。
+
 ## 設定
 
 既定の調整値は`config/ik.conf`にあります。ファイルI/OはDoraノードなど最上位の境界で行い、

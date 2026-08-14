@@ -11,6 +11,7 @@ pub enum IkError {
     InvalidControlPeriod,
     InvalidJointLimit { index: usize },
     InitialAngleOutOfRange { index: usize },
+    PreviousAngleOutOfRange { index: usize },
     DuplicateJointName(String),
     Kinematics(KinematicsError),
     InvalidKinematicEvaluation,
@@ -44,6 +45,9 @@ impl fmt::Display for IkError {
             }
             Self::InitialAngleOutOfRange { index } => {
                 write!(formatter, "関節{index}の初期角度が可動範囲外です")
+            }
+            Self::PreviousAngleOutOfRange { index } => {
+                write!(formatter, "関節{index}の前周期角度が可動範囲外です")
             }
             Self::DuplicateJointName(name) => {
                 write!(formatter, "関節名が重複しています: {name}")

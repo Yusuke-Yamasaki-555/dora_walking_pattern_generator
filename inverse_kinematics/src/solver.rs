@@ -239,6 +239,11 @@ fn validate_inputs(
         if !(limit.minimum_rad..=limit.maximum_rad).contains(&angle) {
             return Err(IkError::InitialAngleOutOfRange { index });
         }
+        if request.previous_angles.is_some_and(|previous| {
+            !(limit.minimum_rad..=limit.maximum_rad).contains(&previous.0[index])
+        }) {
+            return Err(IkError::PreviousAngleOutOfRange { index });
+        }
     }
     Ok(())
 }

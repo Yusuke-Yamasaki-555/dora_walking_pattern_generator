@@ -30,6 +30,7 @@ pub struct IkRequest {
     pub waist_pose_in_world: Pose,
     pub target_foot_pose_in_world: Pose,
     pub initial_angles: JointAngles,
+    /// 前制御周期の解[rad]。指定する場合は現在のモデルの関節可動範囲内でなければならない。
     pub previous_angles: Option<JointAngles>,
     pub control_period_s: f64,
 }
