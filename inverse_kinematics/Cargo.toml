@@ -1,0 +1,8 @@
+[package]
+name = "inverse_kinematics"
+version = "0.1.0"
+edition = "2024"
+description = "Five-degree-of-freedom inverse kinematics core for Cassie walking control"
+
+[dependencies]
+nalgebra = { version = "0.35.0", default-features = false, features = ["std"] }
